@@ -1,0 +1,5 @@
+.env
+data/
+go.sum
+go.mod
+front-end/venv

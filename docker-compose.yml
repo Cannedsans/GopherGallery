@@ -1,0 +1,19 @@
+services:
+  localstack:
+    container_name: testeLocalStack
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - DEBUG=1
+      - AWS_BUCKET_NAME={{BUCKET_NAME}}
+      - SERVICES=s3
+    volumes:
+      - "./data:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - localstack-network
+
+networks:
+  localstack-network:
+    driver: bridge
