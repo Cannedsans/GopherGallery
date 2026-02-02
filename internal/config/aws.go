@@ -24,67 +24,48 @@ func InitAWS(ctx context.Context) error {
 	region := os.Getenv("AWS_REGION")
 	Bockete = os.Getenv("BUCKET_NAME")
 
-	// Configurações do cliente AWS
-	conf, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion(region),
-		config.WithEndpointResolverWithOptions(
-			aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-					if endpoint != "" {
-						return aws.Endpoint{
-							URL:               endpoint,
-							HostnameImmutable: true,
-						}, nil
-					}
-					return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-				}),
-		),
-	)
+	// 1. Carrega a configuração básica
+	conf, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return fmt.Errorf("falha ao carregar a configuração AWS: %w", err)
 	}
 
-	// Cria o cliente S3 e o armazena na variável global
-	S3Client = s3.NewFromConfig(conf)
+	// 2. Cria o cliente S3 usando a sintaxe moderna para injetar o LocalStack
+	S3Client = s3.NewFromConfig(conf, func(o *s3.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true // Substitui o antigo HostnameImmutable
+		}
+	})
 
-	createBucket(ctx)
-	
-	return nil
+	// 3. Garante que o bucket exista
+	return createBucket(ctx)
 }
 
 // GetS3Client retorna o cliente S3 globalmente inicializado.
 func GetS3Client() (*s3.Client, error) {
 	if S3Client == nil {
-		return nil, fmt.Errorf("cliente S3 não foi inicializado. Chame InitAWS() na inicialização da aplicação")
+		return nil, fmt.Errorf("cliente S3 não foi inicializado")
 	}
 	return S3Client, nil
 }
 
 func createBucket(ctx context.Context) error {
-	// Primeiro, listar todos os buckets para verificar se o bucket desejado já existe.
-	listBucketsInput := &s3.ListBucketsInput{}
-	listBucketsOutput, err := S3Client.ListBuckets(ctx, listBucketsInput)
+	// Verifica se o bucket existe (Forma simplificada usando HeadBucket)
+	_, err := S3Client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(Bockete),
+	})
+
+	// Se der erro, assumimos que o bucket não existe e tentamos criar
 	if err != nil {
-		return fmt.Errorf("falha ao listar buckets: %w", err)
-	}
-
-	bucketExists := false
-	for _, bucket := range listBucketsOutput.Buckets {
-		if aws.ToString(bucket.Name) == Bockete {
-			bucketExists = true
-			break
-		}
-	}
-
-	// Se o bucket não existir, crie-o.
-	if !bucketExists {
-		createBucketInput := &s3.CreateBucketInput{
+		_, err := S3Client.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: aws.String(Bockete),
-		}
-		_, err := S3Client.CreateBucket(ctx, createBucketInput)
+		})
 		if err != nil {
 			return fmt.Errorf("falha ao criar bucket '%s': %w", Bockete, err)
 		}
-	} 
+		fmt.Printf("✅ Bucket '%s' criado com sucesso!\n", Bockete)
+	}
+	
 	return nil
 }
